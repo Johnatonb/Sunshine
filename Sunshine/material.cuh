@@ -3,6 +3,7 @@
 
 #include "ray.cuh"
 #include "hittable.cuh"
+#include "texture.cuh"
 
 #define RANDVEC3 vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),curand_uniform(local_rand_state))
 
@@ -47,16 +48,17 @@ public:
 
 class lambertian : public material {
 public:
-    __device__ lambertian(vec3& a) : albedo(a) {}
+    __device__ lambertian(const vec3& a) : albedo(new solid_color(a)) {}
+    __device__ lambertian(textur* a) : albedo(a) {}
     __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state) const {
         vec3 scatter_direction = rec.normal + random_unit_vector(local_rand_state);
 
         if (scatter_direction.near_zero()) { scatter_direction = rec.normal; }
-        scattered = ray(rec.p, scatter_direction);
-        attenuation = albedo;
+        scattered = ray(rec.p, scatter_direction, r_in.time());
+        attenuation = albedo->value(rec.u,rec.v,rec.p);
         return true;
     }
-    vec3 albedo;
+    textur* albedo;
 };
 
 class metal : public material {
@@ -64,7 +66,7 @@ public:
     __device__ metal(const vec3& a, float f): albedo(a), fuzz(f < 1? f: 1 ) {}
     __device__ virtual bool scatter(const ray& r_in, const hit_record& rec, vec3& attenuation, ray& scattered, curandState* local_rand_state) const {
         vec3 reflected = reflect(unit_vector(r_in.direction()), rec.normal);
-        scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(local_rand_state));
+        scattered = ray(rec.p, reflected + fuzz * random_in_unit_sphere(local_rand_state), r_in.time());
         attenuation = albedo;
         return (dot(scattered.direction(),rec.normal) > 0);
     }
@@ -72,17 +74,6 @@ public:
     float fuzz;
 };
 
-//__device__ bool refract(const vec3& v, const vec3& n, float ni_over_nt, vec3& refracted) {
-//    vec3 uv = unit_vector(v);
-//    float dt = dot(uv, n);
-//    float discriminant = 1.0f - ni_over_nt * ni_over_nt * (1 - dt * dt);
-//    if (discriminant > 0) {
-//        refracted = ni_over_nt * (uv - n * dt) - n * sqrt(discriminant);
-//        return true;
-//    }
-//    else
-//        return false;
-//}
 
 class dialectric : public material {
 public:
@@ -102,7 +93,7 @@ public:
             direction = refract(unit_direction, rec.normal, eta_ratio);
         }
 
-        scattered = ray(rec.p, direction);
+        scattered = ray(rec.p, direction, r_in.time());
         return true;
     }
     float eta;

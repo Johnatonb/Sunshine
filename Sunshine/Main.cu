@@ -9,27 +9,19 @@
 #include "hittable_list.cuh"
 #include "sphere.cuh"
 #include "camera.cuh"
+#include "texture.cuh"
 #include "material.cuh"
+#include "moving_sphere.cuh"
+#include "bvh_node.cuh"
 #include <cmath>
 #include <stdio.h>
 
 #define RND (curand_uniform(&local_rand_state))
-#define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
-
-void check_cuda(cudaError_t result, char const* const func, const char* const file, int const line) {
-    if (result) {
-        std::cerr << "CUDA error = " << static_cast<unsigned int>(result) << " at " <<
-            file << ":" << line << " '" << func << "' \n";
-        // Make sure we call CUDA Device Reset before exiting
-        cudaDeviceReset();
-        exit(99);
-    }
-}
 
 __device__ vec3 color(const ray& r, hittable** world, curandState* local_rand_state) {
     ray cur_ray = r;
     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 4; i++) {
         hit_record rec;
         if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
             ray scattered;
@@ -70,7 +62,7 @@ __global__ void render(vec3* data, int max_x, int max_y, int ns, camera** cam, h
     for (int s = 0; s < ns; s++) {
         float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
         float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
-        ray r = (*cam)->get_ray(u, v);
+        ray r = (*cam)->get_ray(u, v, rand_state);
         col += color(r, world, &local_rand_state);
     }
     float scale = 1.0f / ns;
@@ -83,14 +75,14 @@ __global__ void render(vec3* data, int max_x, int max_y, int ns, camera** cam, h
 __global__ void create_world(hittable** d_list, hittable** d_world, camera** d_camera, curandState* rand_state,vec3 lookfrom, vec3 lookat, vec3 vup, float vfov, float aspect_ratio) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
         curandState local_rand_state = *rand_state;
-        d_list[0] = new sphere(vec3(0, -1000.0f, -1.0f), 1000.0f, new lambertian(vec3(0.5, 0.5, 0.5)));
+        d_list[0] = new sphere(vec3(0, -1000.0f, -1.0f), 1000.0f, new lambertian(new checker_texture(vec3(0.2, 0.3, 0.1),vec3(0.9,0.9,0.9))));
         int i = 1;
         for (int a = -11; a < 11; a++) {
             for (int b = -11; b < 11; b++) {
                 float choose_mat = RND;
                 vec3 center(a + RND, 0.2, b + RND);
                 if (choose_mat < 0.8f) {
-                    d_list[i++] = new sphere(center, 0.2, new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
+                    d_list[i++] = new moving_sphere(center, center + vec3(0.0f, curand_uniform(rand_state) * .5,0.0f), 0.0f, 1.0f, 0.2, new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
                 }
                 else if (choose_mat < 0.95) {
                     d_list[i++] = new sphere(center, 0.2, new metal(vec3(0.5f*(1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)),0.5f * RND));
@@ -105,7 +97,7 @@ __global__ void create_world(hittable** d_list, hittable** d_world, camera** d_c
         d_list[i++] = new sphere(vec3(0, 1, 0), 1, new dialectric(1.5));
         *rand_state = local_rand_state;
         *d_world = new hittable_list(d_list, 22*22+3+1);
-        *d_camera = new camera(lookfrom, lookat, vup, vfov, aspect_ratio);
+        *d_camera = new camera(lookfrom, lookat, vup, vfov, aspect_ratio, 0.0f, 1.0f);
     }
 }
 
@@ -121,9 +113,9 @@ int main() {
     // Image
     //const float aspect_ratio = 16.0f / 9.0f;
     const float aspect_ratio = 2.0f;
-    const int width = 3200;
+    const int width = 400;
     const int height = static_cast<int>(width / aspect_ratio);
-    const int samples = 100;
+    const int samples = 50;
     
     int num_bytes = width * height * sizeof(vec3);
 
@@ -146,7 +138,7 @@ int main() {
     cudaMalloc((void**)&d_list, (22*22+3+1)*sizeof(hittable*));
     cudaMalloc((void**)&d_world, sizeof(hittable*));
     create_world <<<1, 1>>> (d_list, d_world, d_camera, d_rand_state,vec3(13, 2, 3), vec3(0, 0, 0), vec3(0, 1, 0), 30, aspect_ratio);
-    checkCudaErrors(cudaGetLastError());
+
     // Render
 
     vec3* image;

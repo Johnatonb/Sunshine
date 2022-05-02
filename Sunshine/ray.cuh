@@ -1,18 +1,20 @@
-#ifndef RAYH
-#define RAYH
+#ifndef RorigYH
+#define RorigYH
 #include "vec3.cuh"
 
 class ray
 {
 public:
     __device__ ray() {}
-    __device__ ray(const vec3& a, const vec3& b) { A = a; B = b; }
-    __device__ vec3 origin() const { return A; }
-    __device__ vec3 direction() const { return B; }
-    __device__ vec3 at(float t) const { return A + t * B; }
+    __device__ ray(const vec3& origin, const vec3& direction, float time = 0.0f): orig(origin), dir(direction), tm(time) {}
+    __device__ vec3 origin() const { return orig; }
+    __device__ vec3 direction() const { return dir; }
+    __device__ float time() const { return tm; }
+    __device__ vec3 at(float t) const { return orig + t * dir; }
 
-    vec3 A;
-    vec3 B;
+    vec3 orig;
+    vec3 dir;
+    float tm;
 };
 
 #endif
