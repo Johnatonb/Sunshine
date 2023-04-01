@@ -88,16 +88,21 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <CudaCompile Include="Main.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="aabb.cuh" />
+    <ClInclude Include="bvh.cuh" />
     <ClInclude Include="camera.cuh" />
     <ClInclude Include="hittable.cuh" />
     <ClInclude Include="hittable_list.cuh" />
     <ClInclude Include="material.cuh" />
-    <ClInclude Include="sphere.cuh" />
-    <ClInclude Include="vec3.cuh" />
+    <ClInclude Include="moving_sphere.cuh" />
+    <ClInclude Include="perlin.cuh" />
     <ClInclude Include="ray.cuh" />
-  </ItemGroup>
-  <ItemGroup>
-    <CudaCompile Include="Main.cu" />
+    <ClInclude Include="sphere.cuh" />
+    <ClInclude Include="txture.cuh" />
+    <ClInclude Include="vec3.cuh" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
