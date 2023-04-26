@@ -12,9 +12,11 @@
 #include "camera.cuh"
 #include "material.cuh"
 #include "moving_sphere.cuh"
-//#include "bvh.cuh"
+#include "bvh.cuh"
 #include "txture.cuh"
 #include "perlin.cuh"
+#include "aarect.cuh"
+#include "box.cuh"
 #include <vector>
 #include <cmath>
 #include <stdio.h>
@@ -31,27 +33,23 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
     }
 }
 
-__device__ vec3 color(const ray& r, hittable** world, curandState* local_rand_state) {
+__device__ vec3 color(const ray& r, hittable** world, const vec3& background, curandState* local_rand_state) {
     ray cur_ray = r;
     vec3 cur_attenuation(1.0f, 1.0f, 1.0f);
     for (int i = 0; i < 5; i++) {
         hit_record rec;
-        if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
-            ray scattered;
-            vec3 attenuation;
-            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
-                cur_attenuation *= attenuation;
-                cur_ray = scattered;
-            }
-            else {
-                return vec3(0.0f, 0.0f, 0.0f);
-            }
+        if (!(*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
+            return background;
         }
         else {
-            vec3 unit_direction = unit_vector(cur_ray.direction());
-            float t = 0.5f * (unit_direction.y() + 1.0f);
-            vec3 c = (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
-            return cur_attenuation * c;
+            ray scattered;
+            vec3 attenuation;
+            vec3 emitted = rec.mat_ptr->emitted(rec.u, rec.v, rec.p);
+            if (!rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
+                return emitted * cur_attenuation;
+            }
+            cur_attenuation *= attenuation;
+            cur_ray = scattered;
         }
     }
     return vec3(0.0f, 0.0f, 0.0f);
@@ -69,9 +67,12 @@ __global__ void render(vec3* data, int max_x, int max_y, int samples, camera** c
         float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
         float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
         ray r = (*cam)->get_ray(u, v, &local_rand_state);
-        col += color(r, world, &local_rand_state);
+        col += color(r, world, vec3(0.0f,0.0f,0.0f), & local_rand_state);
     }
     col /= float(samples);
+    for (int i = 0; i < 3; i++) {
+        if (col[i] > 1) { col[i] = 1; }
+    }
     col[0] = sqrt(col[0]);
     col[1] = sqrt(col[1]);
     col[2] = sqrt(col[2]);
@@ -91,29 +92,19 @@ __global__ void render_init(int max_x, int max_y, curandState* rand_state) {
 __global__ void create_world(hittable** d_list, hittable** d_world, camera** d_camera, curandState* rand_state, vec3 lookfrom, vec3 lookat, vec3 vup, float vfov, float aspect_ratio) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
         curandState local_rand_state = *rand_state;
-        //d_list[0] = new sphere(vec3(0.0f, -1000.0f, -1.0f), 1000.0f, new lambertian(new checker_txture(vec3(0.2f, 0.3f, 0.1f), vec3(0.9f, 0.9f, 0.9f))));
-        d_list[0] = new sphere(vec3(0.0f, -1000.0f, 0.0f), 1000.0f, new lambertian(new noise_txture(&local_rand_state,4)));
-        d_list[1] = new sphere(vec3(0.0f, 2.0f, 0.0f), 2.0f, new lambertian(new noise_txture(&local_rand_state,4)));
-        /*int i = 1;
-        for (int a = -11; a < 11; a++) {
-            for (int b = -11; b < 11; b++) {
-                float choose_mat = RND;
-                vec3 center(a + RND, 0.2, b + RND);
-                if (choose_mat < 0.8f) {
-                    vec3 center2 = center + vec3(0.0f, 0.5f * RND, 0.0f);
-                    d_list[i++] = new moving_sphere(center, center2, 0.0f, 1.0f, 0.2f, new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
-                } else if (choose_mat < 0.95f) {
-                    d_list[i++] = new sphere(center, 0.2f, new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
-                } else {
-                    d_list[i++] = new sphere(center, 0.2f, new dielectric(1.5));
-                }
-            }
-        }
-        d_list[i++] = new sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-        d_list[i++] = new sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-        d_list[i++] = new sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));*/
+
+        d_list[0] = new yz_rect(0.0f, 555.0f, 0.0f, 555.0f, 555.0f, new lambertian(vec3(0.12f, 0.45f, 0.15f)));
+        d_list[1] = new yz_rect(0.0f, 555.0f, 0.0f, 555.0f, 0.0f, new lambertian(vec3(0.65f, 0.05f, 0.05f)));
+        d_list[2] = new xz_rect(213.0f, 343.0f, 227.0f, 332.0f, 554.0f, new diffuse_light(vec3(15.0f, 15.0f, 15.0f)));
+        d_list[3] = new xz_rect(0.0f, 555.0f, 0.0f, 555.0f, 0.0f, new lambertian(vec3(0.73f, 0.73f, 0.73f)));
+        d_list[4] = new xz_rect(0.0f, 555.0f, 0.0f, 555.0f, 555.0f, new lambertian(vec3(0.73f, 0.73f, 0.73f)));
+        d_list[5] = new xy_rect(0.0f, 555.0f, 0.0f, 555.0f, 555.0f, new lambertian(vec3(0.73f, 0.73f, 0.73f)));
+
+        d_list[6] = new sphere(vec3(255.0f, 255.0f, 255.0f), 50.0f, new lambertian(vec3(0.73f, 0.73f, 0.73f)));
+
         *rand_state = local_rand_state;
-        *d_world = new hittable_list(d_list, 2);
+        *d_world = new hittable_list(d_list, 7);
+        //*d_world = new bvh_node(hittable_list(d_list, 6), 6, 0.0f, 1.0f, &local_rand_state);
         *d_camera = new camera(lookfrom, lookat, vup, vfov, aspect_ratio, 0.1f, 10.f, 0.0f, 1.0f);
     }
 }
@@ -128,17 +119,17 @@ __global__ void free_world(hittable** d_list, hittable** d_world, camera** d_cam
 }
 
 int main() {
-    const auto aspect_ratio = 16.0f / 9.0f;
-    const int width = 400;
+    const auto aspect_ratio = 1.0f;
+    const int width = 512;
     const int height = static_cast<int> (width / aspect_ratio);
     int num_pixels = width * height;
-    int samples = 100;
+    int samples = 1000;
 
     vec3* image;
     checkCudaErrors(cudaMallocManaged((void**)&image, num_pixels * sizeof(vec3)));
 
     hittable** d_list;
-    int num_hittables = 22 * 22 + 1 + 3;
+    int num_hittables = 30;
     hittable** d_world;
     curandState* d_rand_state;
     camera** d_camera;
@@ -148,14 +139,12 @@ int main() {
     checkCudaErrors(cudaMalloc((void**)&d_rand_state, num_pixels * sizeof(curandState)));
     checkCudaErrors(cudaMalloc((void**)&d_camera, sizeof(camera*)));
 
-    float threads = 32.0f;
+    float threads = 8.0f;
     dim3 BlocksPerGrid = dim3(ceil(width / threads), ceil(height / threads));
     dim3 threadsPerBlock = dim3(threads, threads);
-
     render_init <<<BlocksPerGrid, threadsPerBlock>>> (width, height, d_rand_state);
-    create_world <<<1,1>>> (d_list, d_world, d_camera, d_rand_state, vec3(13,2,3), vec3(0, 0, 0), vec3(0, 1, 0), 20, aspect_ratio);
+    create_world <<<1,1>>> (d_list, d_world, d_camera, d_rand_state, vec3(278,278,-800), vec3(278, 278, 0), vec3(0, 1, 0), 40, aspect_ratio);
     render <<<BlocksPerGrid, threadsPerBlock >>> (image, width, height, samples, d_camera, d_world, d_rand_state);
-
     cudaMemcpy(image, image, num_pixels, cudaMemcpyHostToDevice);
 
     std::cout << "P3\n" << width << ' ' << height << "\n255\n";

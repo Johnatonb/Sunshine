@@ -9,12 +9,17 @@ struct hit_record;
 
 #define RANDVEC3 vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),curand_uniform(local_rand_state))
 
+__device__ float random_normal(curandState* local_rand_state) {
+	return sqrtf(-2.0f * logf(curand_uniform(local_rand_state))) * cosf(2.0f * 3.1415926f * curand_uniform(local_rand_state));
+}
+
 __device__ vec3 random_in_unit_sphere(curandState* local_rand_state) {
-	vec3 p;
-	do {
-		p = 2.0f * RANDVEC3 - vec3(1, 1, 1);
-	} while (p.length_squared() >= 1.0f);
-	return p;
+	//vec3 p;
+	//do {
+	//	p = 2.0f * RANDVEC3 - vec3(1, 1, 1);
+	//} while (p.length_squared() >= 1.0f);
+	//return p;
+	return vec3(random_normal(local_rand_state), random_normal(local_rand_state), random_normal(local_rand_state));
 }
 
 __device__ vec3 random_unit_vector(curandState* local_rand_state) {

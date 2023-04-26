@@ -57,6 +57,7 @@ __device__ bool moving_sphere::bounding_box(float _time0, float _time1, aabb& ou
     aabb box0(center(_time0) - vec3(radius, radius, radius), center(_time0) + vec3(radius, radius, radius));
     aabb box1(center(_time1) - vec3(radius, radius, radius), center(_time1) + vec3(radius, radius, radius));
     output_box = surrounding_box(box0, box1);
+    return true;
 }
 
 #endif
